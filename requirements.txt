@@ -1,0 +1,15 @@
+# Core ML
+# Install PyTorch separately with CUDA support:
+#   pip install torch==2.11.0+cu128 torchaudio==2.11.0+cu128 \
+#       --index-url https://download.pytorch.org/whl/cu128
+transformers>=4.40.0
+scikit-learn>=1.4.0
+numpy>=1.26.0
+pandas>=2.0.0
+
+# Experiment tracking
+tensorboard>=2.15.0
+
+# Utilities
+tqdm>=4.66.0
+matplotlib>=3.8.0
