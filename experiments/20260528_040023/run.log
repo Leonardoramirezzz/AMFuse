@@ -1,0 +1,224 @@
+
+========================================================================
+  AMFuse — Inicio de entrenamiento
+========================================================================
+  Fecha/hora:  2026-05-28 04:00:23
+
+  Configuración:
+  data_dir                      : D:\Leo_2026_1\PFC2\amfuse_2\data
+  exp_dir                       : D:\Leo_2026_1\PFC2\amfuse_2\experiments
+  task                          : regression
+  epochs                        : 5
+  batch_size                    : 64
+  lr                            : 0.0001
+  weight_decay                  : 0.0001
+  d_hidden                      : 256
+  missing_rate                  : 0.2
+  num_workers                   : 0
+  seed                          : 42
+  device                        : cuda
+
+  Archivos de salida:
+  Directorio experimento        : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260528_040023
+  Log detallado                 : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260528_040023\run.log
+  Mejor checkpoint              : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260528_040023\best_model.pt
+  Último checkpoint             : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260528_040023\last_model.pt
+  Métricas JSON                 : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260528_040023\metrics.json
+  TensorBoard                   : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260528_040023\tensorboard
+
+------------------------------------------------------------------------
+  Dispositivo
+------------------------------------------------------------------------
+  Device                        : cuda
+  GPU                           : NVIDIA GeForce RTX 5060 Ti
+  CUDA version                  : 12.8
+  VRAM total                    : 17.1 GB
+
+------------------------------------------------------------------------
+  Carga de datos
+------------------------------------------------------------------------
+  Cargando splits de CMU-MOSEI ...
+  Splits cargados en 1.5s
+
+  Tamaño de splits:
+    train                       : 16,302 muestras  (255 batches × batch_size=64)
+    valid                       : 1,871 muestras  (30 batches × batch_size=64)
+    test                        : 2,220 muestras  (35 batches × batch_size=64)
+
+  Dimensiones de features:
+    Texto (BERT CLS)            : 768
+    Audio (COVAREP)             : 74
+    Video (FACET)               : 35
+    Missing rate train          : 20%
+
+------------------------------------------------------------------------
+  Arquitectura AMFuse
+------------------------------------------------------------------------
+  Pipeline: M1(estado) -> M2(proyección) -> M3A(generación) -> M3B(confiabilidad) -> M4(cross-attn) -> M5(fusión) -> M6(clasificador)
+
+  Parámetros por módulo:
+    M2  UnimodalProjectors        :    225,280
+    M3A MissingGenerator          :  1,581,312
+    M3B ConfidenceEstimator       :     99,075
+    M4  DynamicCrossAttn          :    789,504
+    M5  ConfidenceAwareFusion     :    197,635
+    M6  Classifier                :     33,025
+    TOTAL                         :  2,925,831
+    ENTRENABLES                   :  2,925,831
+
+  Hiperparámetros del modelo:
+    Dimensión latente d         : 256
+    Cabezas de atención         : 8
+    Beta (penalización)         : 0.5
+    Task                        : regression
+
+------------------------------------------------------------------------
+  Optimizador
+------------------------------------------------------------------------
+  Optimizador                   : AdamW
+  Learning rate                 : 0.0001
+  Weight decay                  : 0.0001
+  Scheduler                     : CosineAnnealingLR (T_max=5)
+  Loss                          : MAE (L1Loss)
+  Gradient clipping             : max_norm=1.0
+
+========================================================================
+  Entrenamiento — 5 épocas
+========================================================================
+
+  Época   Tr Loss  Val Loss      MAE     Corr     Acc7     Acc2       F1   Tiempo  Mejor
+  --------------------------------------------------------------------------------------
+
+------------------------------------------------------------------------
+  Detalle módulos — Época 1, Batch 1
+------------------------------------------------------------------------
+  [M1]  Estado de modalidades — batch=64  Texto=49  Audio=49  Video=48  presentes
+  [M2]  Proyectores unimodales ->
+    [M2] Proyección unimodal completada — Texto: 49/64 presentes  Audio: 49/64 presentes  Video: 48/64 presentes
+    [M2] Normas embeddings -> h_t=2.580  h_a=146.656  h_v=14.285
+  [M3A] Generador de modalidades faltantes ->
+    [M3A] Generando TEXTO para 15 muestras (audio+video como referencia)
+    [M3A] Generando AUDIO para 15 muestras (texto+video como referencia)
+    [M3A] Generando VIDEO para 16 muestras (texto+audio como referencia)
+  [M3B] Estimador de confiabilidad ->
+    [M3B] Confiabilidad estimada -> c_t=0.407±0.111  c_a=0.091±0.072  c_v=0.417±0.107  (beta=0.5)
+  [M4]  Atención cruzada con ancla dinámica ->
+    [M4]  Ancla seleccionada -> Texto: 30  Audio: 1  Video: 33  muestras
+  [M5]  Fusión dinámica consciente de confiabilidad ->
+    [M5]  Pesos base λ     -> t=0.263  a=0.383  v=0.355
+    [M5]  Pesos finales λ'' -> t=0.380  a=0.112  v=0.508
+  [M6]  Clasificador ->
+    [M6]  Predicciones -> shape=(64, 1)  min=-0.135  max=0.630
+      1    0.3253    0.5160   0.5160   0.7508   0.5430   0.7199   0.7136     5.2s << MEJOR
+      2    0.2728    0.5151   0.5151   0.7515   0.5430   0.7237   0.7179     4.3s << MEJOR
+      3    0.2728    0.5160   0.5160   0.7515   0.5377   0.7141   0.7042     4.6s
+      4    0.2683    0.5187   0.5187   0.7515   0.5355   0.7125   0.7019     4.2s
+
+------------------------------------------------------------------------
+  Detalle módulos — Época 5, Batch 1
+------------------------------------------------------------------------
+  [M1]  Estado de modalidades — batch=64  Texto=51  Audio=50  Video=49  presentes
+  [M2]  Proyectores unimodales ->
+    [M2] Proyección unimodal completada — Texto: 51/64 presentes  Audio: 50/64 presentes  Video: 49/64 presentes
+    [M2] Normas embeddings -> h_t=5.026  h_a=148.664  h_v=14.775
+  [M3A] Generador de modalidades faltantes ->
+    [M3A] Generando TEXTO para 13 muestras (audio+video como referencia)
+    [M3A] Generando AUDIO para 14 muestras (texto+video como referencia)
+    [M3A] Generando VIDEO para 15 muestras (texto+audio como referencia)
+  [M3B] Estimador de confiabilidad ->
+    [M3B] Confiabilidad estimada -> c_t=0.543±0.164  c_a=0.019±0.036  c_v=0.222±0.089  (beta=0.5)
+  [M4]  Atención cruzada con ancla dinámica ->
+    [M4]  Ancla seleccionada -> Texto: 51  Audio: 2  Video: 11  muestras
+  [M5]  Fusión dinámica consciente de confiabilidad ->
+    [M5]  Pesos base λ     -> t=0.948  a=0.014  v=0.037
+    [M5]  Pesos finales λ'' -> t=0.960  a=0.004  v=0.037
+  [M6]  Clasificador ->
+    [M6]  Predicciones -> shape=(64, 1)  min=-2.042  max=2.274
+      5    0.2673    0.5172   0.5172   0.7516   0.5345   0.7167   0.7086     4.4s
+
+------------------------------------------------------------------------
+  Stats del modelo — Época 5
+------------------------------------------------------------------------
+  Normas de gradientes (promedio por módulo):
+    M2 projectors            : 0.051573
+    M3A generator            : 0.013823
+    M3B confidence           : 0.001400
+    M4 cross attn            : 0.013555
+    M5 fusion                : 0.005443
+    M6 classifier            : 0.187755
+
+  Normas de parámetros (W, media ± std):
+    M2  Proyectores          : 9.3028 ± 0.0654
+    M3A Generador            : 12.7967 ± 4.2213
+    M3B Confiabilidad        : 3.5621 ± 2.9817
+    M4  CrossAttn            : 14.4296 ± 5.1757
+    M5  Fusión               : 5.1457 ± 4.1494
+    M6  Clasificador         : 3.5409 ± 2.9882
+
+  Confiabilidad media en validación:
+      c_t (Texto)               : 0.5962
+      c_a (Audio)               : 0.0004
+      c_v (Video)               : 0.2190
+      LR actual                 : 0.00e+00
+
+
+========================================================================
+  Evaluación en TEST (mejor checkpoint)
+========================================================================
+  Cargando checkpoint de época 2 ...
+
+    Pérdida test                : 0.5347
+
+  Métricas test:
+      MAE                       : 0.5347
+      Corr                      : 0.7750
+      Acc7                      : 0.5351
+      Acc2                      : 0.7374
+      F1                        : 0.7360
+
+  Confiabilidad media en test:
+      c_t (Texto)               : 0.5960
+      c_a (Audio)               : 0.0015
+      c_v (Video)               : 0.2152
+
+========================================================================
+  Resumen de la ejecución
+========================================================================
+  Épocas completadas            : 5
+  Mejor época                   : 2
+  Mejor val_loss                : 0.5151
+  Tiempo total                  : 0.4 min
+  Tiempo promedio/época         : 4.6s
+
+  Archivos generados:
+      Mejor checkpoint          : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260528_040023\best_model.pt
+      Último checkpoint         : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260528_040023\last_model.pt
+      Métricas JSON             : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260528_040023\metrics.json
+      Log completo              : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260528_040023\run.log
+      TensorBoard               : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260528_040023\tensorboard
+
+  Contenido del checkpoint (best_model.pt):
+    - model state_dict  (pesos del modelo)
+    - optimizer state_dict
+    - epoch, val_loss, val_metrics
+    - args (config completa)
+
+  Para cargar el modelo entrenado:
+    import torch
+    from model import AMFuse
+    ckpt  = torch.load('D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260528_040023\best_model.pt')
+    model = AMFuse(task='regression', d=256)
+    model.load_state_dict(ckpt['model'])
+    model.eval()
+
+  Para ver las curvas de entrenamiento:
+    tensorboard --logdir "D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260528_040023\tensorboard"
+
+========================================================================
+  Fin del entrenamiento
+========================================================================
+  Fecha/hora de cierre:  2026-05-28 04:00:49
+
+========================================================================
+  Log cerrado:  2026-05-28 04:00:49
+========================================================================
