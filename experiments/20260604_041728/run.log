@@ -1,0 +1,700 @@
+
+========================================================================
+  AMFuse — Inicio de entrenamiento
+========================================================================
+  Fecha/hora:  2026-06-04 04:17:28
+
+  Configuración:
+  data_dir                      : D:\Leo_2026_1\PFC2\amfuse_2\data
+  exp_dir                       : D:\Leo_2026_1\PFC2\amfuse_2\experiments
+  task                          : regression
+  epochs                        : 60
+  batch_size                    : 64
+  lr                            : 0.0001
+  weight_decay                  : 0.001
+  d_hidden                      : 256
+  dropout                       : 0.1
+  missing_rate                  : 0.4
+  lambda_recon                  : 0.1
+  lambda_spread                 : 0.05
+  num_workers                   : 0
+  seed                          : 42
+  device                        : cuda
+
+  Archivos de salida:
+  Directorio experimento        : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260604_041728
+  Log detallado                 : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260604_041728\run.log
+  Mejor checkpoint              : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260604_041728\best_model.pt
+  Último checkpoint             : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260604_041728\last_model.pt
+  Métricas JSON                 : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260604_041728\metrics.json
+  TensorBoard                   : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260604_041728\tensorboard
+
+------------------------------------------------------------------------
+  Dispositivo
+------------------------------------------------------------------------
+  Device                        : cuda
+  GPU                           : NVIDIA GeForce RTX 5060 Ti
+  CUDA version                  : 12.8
+  VRAM total                    : 17.1 GB
+
+------------------------------------------------------------------------
+  Carga de datos
+------------------------------------------------------------------------
+  Cargando splits de CMU-MOSEI ...
+  Splits cargados en 1.6s
+
+  Tamaño de splits:
+    train                       : 16,326 muestras  (256 batches × batch_size=64)
+    valid                       : 1,871 muestras  (30 batches × batch_size=64)
+    test                        : 2,182 muestras  (35 batches × batch_size=64)
+
+  Dimensiones de features:
+    Texto (BERT CLS)            : 768
+    Audio (COVAREP)             : 74
+    Video (FACET)               : 35
+    Missing rate train          : 40%
+
+------------------------------------------------------------------------
+  Arquitectura AMFuse
+------------------------------------------------------------------------
+  Pipeline: M1(estado) -> M2(proyección) -> M3A(generación) -> M3B(confiabilidad) -> M4(cross-attn) -> M5(fusión) -> M6(clasificador)
+
+  Parámetros por módulo:
+    M2  UnimodalProjectors        :    225,280
+    M3A MissingGenerator          :  1,581,312
+    M3B ConfidenceEstimator       :     99,076
+    M4  DynamicCrossAttn          :    789,505
+    M5  ConfidenceAwareFusion     :    197,635
+    M6  Classifier                :     33,025
+    TOTAL                         :  2,925,833
+    ENTRENABLES                   :  2,925,833
+
+  Hiperparámetros del modelo:
+    Dimensión latente d         : 256
+    Cabezas de atención         : 8
+    Beta (penalización)         : learnable, init=0.5
+    Dropout                     : 0.1
+    Task                        : regression
+
+------------------------------------------------------------------------
+  Optimizador
+------------------------------------------------------------------------
+  Optimizador                   : AdamW
+  Learning rate                 : 0.0001
+  Weight decay                  : 0.001
+  Scheduler                     : CosineAnnealingLR (T_max=60)
+  Loss                          : MAE (L1Loss)
+  Lambda recon                  : 0.1
+  Lambda spread                 : 0.05
+  Gradient clipping             : max_norm=1.0
+
+========================================================================
+  Entrenamiento — 60 épocas
+========================================================================
+
+  Época   Tr Loss  Val Loss      MAE     Corr     Acc7     Acc2       F1   Tiempo  Mejor
+  --------------------------------------------------------------------------------------
+
+------------------------------------------------------------------------
+  Detalle módulos — Época 1, Batch 1
+------------------------------------------------------------------------
+  [M1]  Estado de modalidades — batch=64  Texto=33  Audio=34  Video=37  presentes
+  [M2]  Proyectores unimodales ->
+    [M2] Proyección unimodal completada — Texto: 33/64 presentes  Audio: 34/64 presentes  Video: 37/64 presentes
+    [M2] Normas embeddings -> h_t=4.054  h_a=4.642  h_v=5.547
+  [M3A] Generador de modalidades faltantes ->
+    [M3A] Generando TEXTO para 31 muestras (audio+video como referencia)
+    [M3A] Generando AUDIO para 30 muestras (texto+video como referencia)
+    [M3A] Generando VIDEO para 27 muestras (texto+audio como referencia)
+  [M3B] Estimador de confiabilidad ->
+    [M3B] Confiabilidad estimada -> c_t=0.338±0.117  c_a=0.340±0.121  c_v=0.387±0.125  (beta=0.500)
+  [M4]  Atención cruzada con ancla dinámica ->
+    [M4]  Ancla dominante (soft) -> Texto: 18  Audio: 14  Video: 32  muestras  (T=1.000)
+  [M5]  Fusión dinámica consciente de confiabilidad ->
+    [M5]  Pesos base λ     -> t=0.344  a=0.318  v=0.338
+    [M5]  Pesos finales λ'' -> t=0.327  a=0.304  v=0.369
+  [M6]  Clasificador ->
+    [M6]  Predicciones -> shape=(64, 1)  min=-0.069  max=0.147
+      1    0.5958    0.5174   0.5174   0.7474   0.5489   0.7130   0.7041     8.5s << MEJOR
+      2    0.5556    0.5190   0.5190   0.7473   0.5382   0.7119   0.7034     7.8s
+      3    0.5423    0.5160   0.5160   0.7489   0.5404   0.7098   0.7007     7.6s << MEJOR
+      4    0.5305    0.5179   0.5179   0.7484   0.5371   0.7178   0.7099     7.7s
+      5    0.5244    0.5175   0.5175   0.7482   0.5350   0.7173   0.7086     7.7s
+
+------------------------------------------------------------------------
+  Stats del modelo — Época 5
+------------------------------------------------------------------------
+  Normas de gradientes (promedio por módulo):
+    M2 projectors            : 0.097028
+    M3A generator            : 0.028041
+    M3B confidence           : 0.013992
+    M4 cross attn            : 0.052457
+    M5 fusion                : 0.140356
+    M6 classifier            : 0.333761
+
+  Normas de parámetros (W, media ± std):
+    M2  Proyectores          : 9.2874 ± 0.0494
+    M3A Generador            : 12.9118 ± 4.1742
+    M3B Confiabilidad        : 3.7598 ± 3.0498
+    M4  CrossAttn            : 14.4356 ± 5.1695
+    M5  Fusión               : 5.1465 ± 4.1826
+    M6  Clasificador         : 3.5112 ± 2.9871
+
+  Confiabilidad media en validación:
+      c_t (Texto)               : 0.6651
+      c_a (Audio)               : 0.3497
+      c_v (Video)               : 0.5173
+      beta (M3B)                : 0.5013
+      T (M4)                    : 1.0108
+      LR actual                 : 9.83e-05
+
+      6    0.5134    0.5174   0.5174   0.7483   0.5323   0.7125   0.7037     7.8s
+      7    0.5146    0.5166   0.5166   0.7502   0.5307   0.7167   0.7084     7.6s
+      8    0.5113    0.5175   0.5175   0.7485   0.5387   0.7167   0.7087     7.6s
+      9    0.5078    0.5166   0.5166   0.7495   0.5334   0.7221   0.7156     7.6s
+
+------------------------------------------------------------------------
+  Detalle módulos — Época 10, Batch 1
+------------------------------------------------------------------------
+  [M1]  Estado de modalidades — batch=64  Texto=40  Audio=36  Video=36  presentes
+  [M2]  Proyectores unimodales ->
+    [M2] Proyección unimodal completada — Texto: 40/64 presentes  Audio: 36/64 presentes  Video: 36/64 presentes
+    [M2] Normas embeddings -> h_t=13.883  h_a=4.827  h_v=5.223
+  [M3A] Generador de modalidades faltantes ->
+    [M3A] Generando TEXTO para 24 muestras (audio+video como referencia)
+    [M3A] Generando AUDIO para 28 muestras (texto+video como referencia)
+    [M3A] Generando VIDEO para 28 muestras (texto+audio como referencia)
+  [M3B] Estimador de confiabilidad ->
+    [M3B] Confiabilidad estimada -> c_t=0.473±0.444  c_a=0.345±0.234  c_v=0.459±0.383  (beta=0.501)
+  [M4]  Atención cruzada con ancla dinámica ->
+    [M4]  Ancla dominante (soft) -> Texto: 33  Audio: 12  Video: 19  muestras  (T=1.015)
+  [M5]  Fusión dinámica consciente de confiabilidad ->
+    [M5]  Pesos base λ     -> t=0.733  a=0.170  v=0.097
+    [M5]  Pesos finales λ'' -> t=0.534  a=0.300  v=0.166
+  [M6]  Clasificador ->
+    [M6]  Predicciones -> shape=(64, 1)  min=-2.948  max=2.616
+     10    0.4956    0.5139   0.5139   0.7497   0.5414   0.7199   0.7140     7.5s << MEJOR
+
+------------------------------------------------------------------------
+  Stats del modelo — Época 10
+------------------------------------------------------------------------
+  Normas de gradientes (promedio por módulo):
+    M2 projectors            : 0.067575
+    M3A generator            : 0.008740
+    M3B confidence           : 0.003232
+    M4 cross attn            : 0.040715
+    M5 fusion                : 0.085624
+    M6 classifier            : 0.372600
+
+  Normas de parámetros (W, media ± std):
+    M2  Proyectores          : 9.3281 ± 0.0657
+    M3A Generador            : 13.0555 ± 4.1165
+    M3B Confiabilidad        : 4.0435 ± 3.1681
+    M4  CrossAttn            : 14.4526 ± 5.1607
+    M5  Fusión               : 5.2374 ± 4.2329
+    M6  Clasificador         : 3.4934 ± 2.9916
+
+  Confiabilidad media en validación:
+      c_t (Texto)               : 0.6527
+      c_a (Audio)               : 0.4165
+      c_v (Video)               : 0.5358
+      beta (M3B)                : 0.5010
+      T (M4)                    : 1.0165
+      LR actual                 : 9.33e-05
+
+     11    0.4865    0.5155   0.5155   0.7499   0.5377   0.7189   0.7125     7.5s
+     12    0.4845    0.5152   0.5152   0.7502   0.5414   0.7157   0.7083     7.6s
+     13    0.4774    0.5190   0.5190   0.7496   0.5318   0.7114   0.7037     7.8s
+     14    0.4740    0.5202   0.5202   0.7506   0.5313   0.7205   0.7137     7.9s
+     15    0.4694    0.5158   0.5158   0.7511   0.5323   0.7242   0.7179     8.1s
+
+------------------------------------------------------------------------
+  Stats del modelo — Época 15
+------------------------------------------------------------------------
+  Normas de gradientes (promedio por módulo):
+    M2 projectors            : 0.104368
+    M3A generator            : 0.027281
+    M3B confidence           : 0.010718
+    M4 cross attn            : 0.049451
+    M5 fusion                : 0.047960
+    M6 classifier            : 0.339085
+
+  Normas de parámetros (W, media ± std):
+    M2  Proyectores          : 9.3569 ± 0.0886
+    M3A Generador            : 13.1709 ± 4.0733
+    M3B Confiabilidad        : 4.3259 ± 3.2895
+    M4  CrossAttn            : 14.4733 ± 5.1511
+    M5  Fusión               : 5.3609 ± 4.2952
+    M6  Clasificador         : 3.4823 ± 2.9969
+
+  Confiabilidad media en validación:
+      c_t (Texto)               : 0.6218
+      c_a (Audio)               : 0.4067
+      c_v (Video)               : 0.5327
+      beta (M3B)                : 0.5003
+      T (M4)                    : 1.0259
+      LR actual                 : 8.54e-05
+
+     16    0.4757    0.5165   0.5165   0.7509   0.5323   0.7167   0.7087     8.0s
+     17    0.4677    0.5176   0.5176   0.7502   0.5345   0.7189   0.7117     8.0s
+     18    0.4741    0.5186   0.5186   0.7502   0.5339   0.7317   0.7266     8.1s
+     19    0.4631    0.5150   0.5150   0.7508   0.5339   0.7290   0.7233     8.0s
+
+------------------------------------------------------------------------
+  Detalle módulos — Época 20, Batch 1
+------------------------------------------------------------------------
+  [M1]  Estado de modalidades — batch=64  Texto=38  Audio=35  Video=37  presentes
+  [M2]  Proyectores unimodales ->
+    [M2] Proyección unimodal completada — Texto: 38/64 presentes  Audio: 35/64 presentes  Video: 37/64 presentes
+    [M2] Normas embeddings -> h_t=9.721  h_a=5.199  h_v=5.910
+  [M3A] Generador de modalidades faltantes ->
+    [M3A] Generando TEXTO para 26 muestras (audio+video como referencia)
+    [M3A] Generando AUDIO para 29 muestras (texto+video como referencia)
+    [M3A] Generando VIDEO para 27 muestras (texto+audio como referencia)
+  [M3B] Estimador de confiabilidad ->
+    [M3B] Confiabilidad estimada -> c_t=0.393±0.437  c_a=0.446±0.395  c_v=0.428±0.420  (beta=0.500)
+  [M4]  Atención cruzada con ancla dinámica ->
+    [M4]  Ancla dominante (soft) -> Texto: 32  Audio: 15  Video: 17  muestras  (T=1.032)
+  [M5]  Fusión dinámica consciente de confiabilidad ->
+    [M5]  Pesos base λ     -> t=0.921  a=0.050  v=0.029
+    [M5]  Pesos finales λ'' -> t=0.626  a=0.274  v=0.100
+  [M6]  Clasificador ->
+    [M6]  Predicciones -> shape=(64, 1)  min=-1.704  max=2.465
+     20    0.4616    0.5141   0.5141   0.7512   0.5414   0.7301   0.7255     8.1s
+
+------------------------------------------------------------------------
+  Stats del modelo — Época 20
+------------------------------------------------------------------------
+  Normas de gradientes (promedio por módulo):
+    M2 projectors            : 0.112641
+    M3A generator            : 0.027871
+    M3B confidence           : 0.006006
+    M4 cross attn            : 0.027892
+    M5 fusion                : 0.028457
+    M6 classifier            : 0.359476
+
+  Normas de parámetros (W, media ± std):
+    M2  Proyectores          : 9.3696 ± 0.1084
+    M3A Generador            : 13.2690 ± 4.0440
+    M3B Confiabilidad        : 4.5295 ± 3.3800
+    M4  CrossAttn            : 14.4915 ± 5.1433
+    M5  Fusión               : 5.4762 ± 4.3560
+    M6  Clasificador         : 3.4754 ± 3.0012
+
+  Confiabilidad media en validación:
+      c_t (Texto)               : 0.6034
+      c_a (Audio)               : 0.4090
+      c_v (Video)               : 0.5356
+      beta (M3B)                : 0.4996
+      T (M4)                    : 1.0337
+      LR actual                 : 7.50e-05
+
+     21    0.4572    0.5150   0.5150   0.7505   0.5350   0.7215   0.7155     8.1s
+     22    0.4634    0.5166   0.5166   0.7504   0.5355   0.7114   0.7029     8.1s
+     23    0.4560    0.5173   0.5173   0.7513   0.5323   0.7162   0.7081     8.0s
+     24    0.4521    0.5140   0.5140   0.7518   0.5382   0.7285   0.7228     8.2s
+     25    0.4559    0.5171   0.5171   0.7513   0.5334   0.7274   0.7204     8.0s
+
+------------------------------------------------------------------------
+  Stats del modelo — Época 25
+------------------------------------------------------------------------
+  Normas de gradientes (promedio por módulo):
+    M2 projectors            : 0.112677
+    M3A generator            : 0.038598
+    M3B confidence           : 0.012416
+    M4 cross attn            : 0.046932
+    M5 fusion                : 0.053110
+    M6 classifier            : 0.332200
+
+  Normas de parámetros (W, media ± std):
+    M2  Proyectores          : 9.3785 ± 0.1299
+    M3A Generador            : 13.3393 ± 4.0253
+    M3B Confiabilidad        : 4.7025 ± 3.4508
+    M4  CrossAttn            : 14.5101 ± 5.1357
+    M5  Fusión               : 5.5738 ± 4.4119
+    M6  Clasificador         : 3.4742 ± 3.0053
+
+  Confiabilidad media en validación:
+      c_t (Texto)               : 0.5762
+      c_a (Audio)               : 0.4134
+      c_v (Video)               : 0.5360
+      beta (M3B)                : 0.4993
+      T (M4)                    : 1.0427
+      LR actual                 : 6.29e-05
+
+     26    0.4483    0.5136   0.5136   0.7514   0.5387   0.7280   0.7218     7.9s << MEJOR
+     27    0.4461    0.5187   0.5187   0.7501   0.5307   0.7215   0.7148     8.0s
+     28    0.4411    0.5170   0.5170   0.7499   0.5318   0.7301   0.7252     8.0s
+     29    0.4454    0.5146   0.5146   0.7515   0.5345   0.7349   0.7297     8.1s
+
+------------------------------------------------------------------------
+  Detalle módulos — Época 30, Batch 1
+------------------------------------------------------------------------
+  [M1]  Estado de modalidades — batch=64  Texto=40  Audio=38  Video=41  presentes
+  [M2]  Proyectores unimodales ->
+    [M2] Proyección unimodal completada — Texto: 40/64 presentes  Audio: 38/64 presentes  Video: 41/64 presentes
+    [M2] Normas embeddings -> h_t=11.453  h_a=5.639  h_v=5.861
+  [M3A] Generador de modalidades faltantes ->
+    [M3A] Generando TEXTO para 24 muestras (audio+video como referencia)
+    [M3A] Generando AUDIO para 26 muestras (texto+video como referencia)
+    [M3A] Generando VIDEO para 23 muestras (texto+audio como referencia)
+  [M3B] Estimador de confiabilidad ->
+    [M3B] Confiabilidad estimada -> c_t=0.449±0.458  c_a=0.293±0.361  c_v=0.436±0.429  (beta=0.499)
+  [M4]  Atención cruzada con ancla dinámica ->
+    [M4]  Ancla dominante (soft) -> Texto: 32  Audio: 16  Video: 16  muestras  (T=1.049)
+  [M5]  Fusión dinámica consciente de confiabilidad ->
+    [M5]  Pesos base λ     -> t=0.878  a=0.110  v=0.012
+    [M5]  Pesos finales λ'' -> t=0.730  a=0.154  v=0.116
+  [M6]  Clasificador ->
+    [M6]  Predicciones -> shape=(64, 1)  min=-2.624  max=2.933
+     30    0.4445    0.5137   0.5137   0.7511   0.5371   0.7333   0.7281     8.0s
+
+------------------------------------------------------------------------
+  Stats del modelo — Época 30
+------------------------------------------------------------------------
+  Normas de gradientes (promedio por módulo):
+    M2 projectors            : 0.060975
+    M3A generator            : 0.010972
+    M3B confidence           : 0.001134
+    M4 cross attn            : 0.021111
+    M5 fusion                : 0.001771
+    M6 classifier            : 0.334380
+
+  Normas de parámetros (W, media ± std):
+    M2  Proyectores          : 9.3819 ± 0.1417
+    M3A Generador            : 13.3918 ± 4.0130
+    M3B Confiabilidad        : 4.8473 ± 3.5050
+    M4  CrossAttn            : 14.5234 ± 5.1300
+    M5  Fusión               : 5.6578 ± 4.4620
+    M6  Clasificador         : 3.4728 ± 3.0077
+
+  Confiabilidad media en validación:
+      c_t (Texto)               : 0.5536
+      c_a (Audio)               : 0.4181
+      c_v (Video)               : 0.5274
+      beta (M3B)                : 0.4990
+      T (M4)                    : 1.0505
+      LR actual                 : 5.00e-05
+
+     31    0.4419    0.5171   0.5171   0.7511   0.5291   0.7317   0.7270     8.2s
+     32    0.4401    0.5146   0.5146   0.7511   0.5382   0.7242   0.7180     8.1s
+     33    0.4448    0.5156   0.5156   0.7512   0.5361   0.7269   0.7204     8.0s
+     34    0.4364    0.5182   0.5182   0.7510   0.5281   0.7296   0.7238     8.0s
+     35    0.4373    0.5170   0.5170   0.7514   0.5286   0.7290   0.7240     8.1s
+
+------------------------------------------------------------------------
+  Stats del modelo — Época 35
+------------------------------------------------------------------------
+  Normas de gradientes (promedio por módulo):
+    M2 projectors            : 0.143855
+    M3A generator            : 0.048433
+    M3B confidence           : 0.018745
+    M4 cross attn            : 0.042967
+    M5 fusion                : 0.055578
+    M6 classifier            : 0.228898
+
+  Normas de parámetros (W, media ± std):
+    M2  Proyectores          : 9.3834 ± 0.1489
+    M3A Generador            : 13.4279 ± 4.0042
+    M3B Confiabilidad        : 4.9530 ± 3.5369
+    M4  CrossAttn            : 14.5382 ± 5.1239
+    M5  Fusión               : 5.7268 ± 4.5038
+    M6  Clasificador         : 3.4740 ± 3.0092
+
+  Confiabilidad media en validación:
+      c_t (Texto)               : 0.5405
+      c_a (Audio)               : 0.4184
+      c_v (Video)               : 0.5297
+      beta (M3B)                : 0.4989
+      T (M4)                    : 1.0557
+      LR actual                 : 3.71e-05
+
+     36    0.4305    0.5144   0.5144   0.7513   0.5350   0.7376   0.7330     8.1s
+     37    0.4347    0.5149   0.5149   0.7512   0.5366   0.7349   0.7301     8.0s
+     38    0.4382    0.5146   0.5146   0.7515   0.5339   0.7370   0.7326     8.0s
+     39    0.4357    0.5141   0.5141   0.7514   0.5339   0.7269   0.7209     8.1s
+
+------------------------------------------------------------------------
+  Detalle módulos — Época 40, Batch 1
+------------------------------------------------------------------------
+  [M1]  Estado de modalidades — batch=64  Texto=36  Audio=39  Video=35  presentes
+  [M2]  Proyectores unimodales ->
+    [M2] Proyección unimodal completada — Texto: 36/64 presentes  Audio: 39/64 presentes  Video: 35/64 presentes
+    [M2] Normas embeddings -> h_t=10.731  h_a=5.874  h_v=4.866
+  [M3A] Generador de modalidades faltantes ->
+    [M3A] Generando TEXTO para 28 muestras (audio+video como referencia)
+    [M3A] Generando AUDIO para 25 muestras (texto+video como referencia)
+    [M3A] Generando VIDEO para 29 muestras (texto+audio como referencia)
+  [M3B] Estimador de confiabilidad ->
+    [M3B] Confiabilidad estimada -> c_t=0.343±0.443  c_a=0.421±0.407  c_v=0.453±0.421  (beta=0.498)
+  [M4]  Atención cruzada con ancla dinámica ->
+    [M4]  Ancla dominante (soft) -> Texto: 28  Audio: 21  Video: 15  muestras  (T=1.058)
+  [M5]  Fusión dinámica consciente de confiabilidad ->
+    [M5]  Pesos base λ     -> t=0.902  a=0.086  v=0.012
+    [M5]  Pesos finales λ'' -> t=0.578  a=0.247  v=0.175
+  [M6]  Clasificador ->
+    [M6]  Predicciones -> shape=(64, 1)  min=-2.313  max=2.520
+     40    0.4367    0.5146   0.5146   0.7513   0.5345   0.7296   0.7238     7.7s
+
+------------------------------------------------------------------------
+  Stats del modelo — Época 40
+------------------------------------------------------------------------
+  Normas de gradientes (promedio por módulo):
+    M2 projectors            : 0.094687
+    M3A generator            : 0.020897
+    M3B confidence           : 0.000788
+    M4 cross attn            : 0.035816
+    M5 fusion                : 0.007566
+    M6 classifier            : 0.398396
+
+  Normas de parámetros (W, media ± std):
+    M2  Proyectores          : 9.3845 ± 0.1526
+    M3A Generador            : 13.4532 ± 3.9982
+    M3B Confiabilidad        : 5.0189 ± 3.5533
+    M4  CrossAttn            : 14.5489 ± 5.1198
+    M5  Fusión               : 5.7776 ± 4.5331
+    M6  Clasificador         : 3.4749 ± 3.0106
+
+  Confiabilidad media en validación:
+      c_t (Texto)               : 0.5362
+      c_a (Audio)               : 0.4218
+      c_v (Video)               : 0.5287
+      beta (M3B)                : 0.4983
+      T (M4)                    : 1.0579
+      LR actual                 : 2.50e-05
+
+     41    0.4304    0.5154   0.5154   0.7511   0.5307   0.7354   0.7313     7.5s
+     42    0.4293    0.5160   0.5160   0.7513   0.5291   0.7322   0.7270     7.8s
+     43    0.4205    0.5158   0.5158   0.7505   0.5334   0.7317   0.7259     7.5s
+     44    0.4276    0.5163   0.5163   0.7502   0.5323   0.7285   0.7234     7.9s
+     45    0.4290    0.5147   0.5147   0.7513   0.5313   0.7317   0.7262     8.0s
+
+------------------------------------------------------------------------
+  Stats del modelo — Época 45
+------------------------------------------------------------------------
+  Normas de gradientes (promedio por módulo):
+    M2 projectors            : 0.089886
+    M3A generator            : 0.035248
+    M3B confidence           : 0.009446
+    M4 cross attn            : 0.035140
+    M5 fusion                : 0.062636
+    M6 classifier            : 0.327995
+
+  Normas de parámetros (W, media ± std):
+    M2  Proyectores          : 9.3852 ± 0.1538
+    M3A Generador            : 13.4674 ± 3.9951
+    M3B Confiabilidad        : 5.0644 ± 3.5648
+    M4  CrossAttn            : 14.5582 ± 5.1167
+    M5  Fusión               : 5.8054 ± 4.5500
+    M6  Clasificador         : 3.4769 ± 3.0116
+
+  Confiabilidad media en validación:
+      c_t (Texto)               : 0.5224
+      c_a (Audio)               : 0.4214
+      c_v (Video)               : 0.5291
+      beta (M3B)                : 0.4981
+      T (M4)                    : 1.0591
+      LR actual                 : 1.46e-05
+
+     46    0.4262    0.5154   0.5154   0.7511   0.5323   0.7312   0.7255     7.6s
+     47    0.4300    0.5143   0.5143   0.7512   0.5377   0.7263   0.7203     8.0s
+     48    0.4274    0.5151   0.5151   0.7514   0.5345   0.7285   0.7229     7.9s
+     49    0.4266    0.5143   0.5143   0.7514   0.5350   0.7301   0.7243     7.7s
+
+------------------------------------------------------------------------
+  Detalle módulos — Época 50, Batch 1
+------------------------------------------------------------------------
+  [M1]  Estado de modalidades — batch=64  Texto=40  Audio=44  Video=33  presentes
+  [M2]  Proyectores unimodales ->
+    [M2] Proyección unimodal completada — Texto: 40/64 presentes  Audio: 44/64 presentes  Video: 33/64 presentes
+    [M2] Normas embeddings -> h_t=7.970  h_a=6.175  h_v=4.411
+  [M3A] Generador de modalidades faltantes ->
+    [M3A] Generando TEXTO para 24 muestras (audio+video como referencia)
+    [M3A] Generando AUDIO para 20 muestras (texto+video como referencia)
+    [M3A] Generando VIDEO para 31 muestras (texto+audio como referencia)
+  [M3B] Estimador de confiabilidad ->
+    [M3B] Confiabilidad estimada -> c_t=0.295±0.408  c_a=0.513±0.414  c_v=0.388±0.407  (beta=0.498)
+  [M4]  Atención cruzada con ancla dinámica ->
+    [M4]  Ancla dominante (soft) -> Texto: 20  Audio: 27  Video: 17  muestras  (T=1.060)
+  [M5]  Fusión dinámica consciente de confiabilidad ->
+    [M5]  Pesos base λ     -> t=0.923  a=0.061  v=0.017
+    [M5]  Pesos finales λ'' -> t=0.652  a=0.213  v=0.133
+  [M6]  Clasificador ->
+    [M6]  Predicciones -> shape=(64, 1)  min=-1.864  max=2.190
+     50    0.4281    0.5149   0.5149   0.7512   0.5345   0.7322   0.7270     7.7s
+
+------------------------------------------------------------------------
+  Stats del modelo — Época 50
+------------------------------------------------------------------------
+  Normas de gradientes (promedio por módulo):
+    M2 projectors            : 0.158489
+    M3A generator            : 0.047728
+    M3B confidence           : 0.007888
+    M4 cross attn            : 0.034563
+    M5 fusion                : 0.038863
+    M6 classifier            : 0.211907
+
+  Normas de parámetros (W, media ± std):
+    M2  Proyectores          : 9.3858 ± 0.1549
+    M3A Generador            : 13.4746 ± 3.9935
+    M3B Confiabilidad        : 5.0867 ± 3.5695
+    M4  CrossAttn            : 14.5628 ± 5.1152
+    M5  Fusión               : 5.8205 ± 4.5586
+    M6  Clasificador         : 3.4778 ± 3.0120
+
+  Confiabilidad media en validación:
+      c_t (Texto)               : 0.5183
+      c_a (Audio)               : 0.4215
+      c_v (Video)               : 0.5288
+      beta (M3B)                : 0.4980
+      T (M4)                    : 1.0596
+      LR actual                 : 6.70e-06
+
+     51    0.4227    0.5151   0.5151   0.7514   0.5334   0.7263   0.7203     7.8s
+     52    0.4289    0.5154   0.5154   0.7513   0.5345   0.7306   0.7250     7.6s
+     53    0.4269    0.5150   0.5150   0.7513   0.5339   0.7301   0.7244     7.7s
+     54    0.4278    0.5144   0.5144   0.7513   0.5323   0.7317   0.7261     8.0s
+     55    0.4264    0.5148   0.5148   0.7512   0.5345   0.7333   0.7281     7.8s
+
+------------------------------------------------------------------------
+  Stats del modelo — Época 55
+------------------------------------------------------------------------
+  Normas de gradientes (promedio por módulo):
+    M2 projectors            : 0.060314
+    M3A generator            : 0.004431
+    M3B confidence           : 0.018830
+    M4 cross attn            : 0.021455
+    M5 fusion                : 0.033571
+    M6 classifier            : 0.331602
+
+  Normas de parámetros (W, media ± std):
+    M2  Proyectores          : 9.3860 ± 0.1555
+    M3A Generador            : 13.4773 ± 3.9929
+    M3B Confiabilidad        : 5.0958 ± 3.5715
+    M4  CrossAttn            : 14.5648 ± 5.1145
+    M5  Fusión               : 5.8255 ± 4.5613
+    M6  Clasificador         : 3.4783 ± 3.0122
+
+  Confiabilidad media en validación:
+      c_t (Texto)               : 0.5177
+      c_a (Audio)               : 0.4213
+      c_v (Video)               : 0.5292
+      beta (M3B)                : 0.4979
+      T (M4)                    : 1.0597
+      LR actual                 : 1.70e-06
+
+     56    0.4263    0.5149   0.5149   0.7513   0.5313   0.7328   0.7276     7.8s
+     57    0.4188    0.5150   0.5150   0.7513   0.5318   0.7328   0.7276     7.6s
+     58    0.4160    0.5148   0.5148   0.7512   0.5329   0.7328   0.7276     7.7s
+     59    0.4284    0.5148   0.5148   0.7512   0.5329   0.7328   0.7276     7.6s
+
+------------------------------------------------------------------------
+  Detalle módulos — Época 60, Batch 1
+------------------------------------------------------------------------
+  [M1]  Estado de modalidades — batch=64  Texto=38  Audio=47  Video=40  presentes
+  [M2]  Proyectores unimodales ->
+    [M2] Proyección unimodal completada — Texto: 38/64 presentes  Audio: 47/64 presentes  Video: 40/64 presentes
+    [M2] Normas embeddings -> h_t=9.069  h_a=7.032  h_v=5.669
+  [M3A] Generador de modalidades faltantes ->
+    [M3A] Generando TEXTO para 26 muestras (audio+video como referencia)
+    [M3A] Generando AUDIO para 17 muestras (texto+video como referencia)
+    [M3A] Generando VIDEO para 24 muestras (texto+audio como referencia)
+  [M3B] Estimador de confiabilidad ->
+    [M3B] Confiabilidad estimada -> c_t=0.356±0.445  c_a=0.403±0.441  c_v=0.450±0.447  (beta=0.498)
+  [M4]  Atención cruzada con ancla dinámica ->
+    [M4]  Ancla dominante (soft) -> Texto: 20  Audio: 24  Video: 20  muestras  (T=1.060)
+  [M5]  Fusión dinámica consciente de confiabilidad ->
+    [M5]  Pesos base λ     -> t=0.826  a=0.162  v=0.012
+    [M5]  Pesos finales λ'' -> t=0.612  a=0.244  v=0.141
+  [M6]  Clasificador ->
+    [M6]  Predicciones -> shape=(64, 1)  min=-2.624  max=1.649
+     60    0.4260    0.5148   0.5148   0.7512   0.5323   0.7328   0.7276     7.7s
+
+------------------------------------------------------------------------
+  Stats del modelo — Época 60
+------------------------------------------------------------------------
+  Normas de gradientes (promedio por módulo):
+    M2 projectors            : 0.081202
+    M3A generator            : 0.013833
+    M3B confidence           : 0.003066
+    M4 cross attn            : 0.025866
+    M5 fusion                : 0.023452
+    M6 classifier            : 0.323134
+
+  Normas de parámetros (W, media ± std):
+    M2  Proyectores          : 9.3860 ± 0.1555
+    M3A Generador            : 13.4778 ± 3.9928
+    M3B Confiabilidad        : 5.0973 ± 3.5718
+    M4  CrossAttn            : 14.5652 ± 5.1143
+    M5  Fusión               : 5.8268 ± 4.5620
+    M6  Clasificador         : 3.4784 ± 3.0122
+
+  Confiabilidad media en validación:
+      c_t (Texto)               : 0.5182
+      c_a (Audio)               : 0.4213
+      c_v (Video)               : 0.5293
+      beta (M3B)                : 0.4979
+      T (M4)                    : 1.0597
+      LR actual                 : 0.00e+00
+
+
+========================================================================
+  Evaluación en TEST (mejor checkpoint)
+========================================================================
+  Cargando checkpoint de época 26 ...
+
+    Pérdida test                : 0.5280
+
+  Métricas test:
+      MAE                       : 0.5280
+      Corr                      : 0.7753
+      Acc7                      : 0.5399
+      Acc2                      : 0.7195
+      F1                        : 0.7169
+
+  Confiabilidad media en test:
+      c_t (Texto)               : 0.5517
+      c_a (Audio)               : 0.5390
+      c_v (Video)               : 0.5080
+
+========================================================================
+  Resumen de la ejecución
+========================================================================
+  Épocas completadas            : 60
+  Mejor época                   : 26
+  Mejor val_loss                : 0.5136
+  Tiempo total                  : 7.9 min
+  Tiempo promedio/época         : 7.9s
+
+  Archivos generados:
+      Mejor checkpoint          : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260604_041728\best_model.pt
+      Último checkpoint         : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260604_041728\last_model.pt
+      Métricas JSON             : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260604_041728\metrics.json
+      Log completo              : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260604_041728\run.log
+      TensorBoard               : D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260604_041728\tensorboard
+
+  Contenido del checkpoint (best_model.pt):
+    - model state_dict  (pesos del modelo)
+    - optimizer state_dict
+    - epoch, val_loss, val_metrics
+    - args (config completa)
+
+  Para cargar el modelo entrenado:
+    import torch
+    from model import AMFuse
+    ckpt  = torch.load('D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260604_041728\best_model.pt')
+    model = AMFuse(task='regression', d=256)
+    model.load_state_dict(ckpt['model'])
+    model.eval()
+
+  Para ver las curvas de entrenamiento:
+    tensorboard --logdir "D:\Leo_2026_1\PFC2\amfuse_2\experiments\20260604_041728\tensorboard"
+
+========================================================================
+  Fin del entrenamiento
+========================================================================
+  Fecha/hora de cierre:  2026-06-04 04:25:26
+
+========================================================================
+  Log cerrado:  2026-06-04 04:25:26
+========================================================================
