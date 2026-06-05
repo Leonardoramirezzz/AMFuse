@@ -43,14 +43,20 @@ def parse_args():
     p.add_argument("--exp_dir",      default=_DEFAULT_EXP,  type=str)
     p.add_argument("--task",         default="regression",
                    choices=["regression", "classification"])
-    p.add_argument("--epochs",       default=30,   type=int)
-    p.add_argument("--batch_size",   default=32,   type=int)
-    p.add_argument("--lr",           default=1e-4, type=float)
-    p.add_argument("--weight_decay", default=1e-4, type=float)
-    p.add_argument("--d_hidden",     default=256,  type=int)
-    p.add_argument("--missing_rate", default=0.0,  type=float,
+    p.add_argument("--epochs",         default=60,   type=int)
+    p.add_argument("--batch_size",     default=64,   type=int)
+    p.add_argument("--lr",             default=1e-4, type=float)
+    p.add_argument("--weight_decay",   default=1e-3, type=float)
+    p.add_argument("--d_hidden",       default=256,  type=int)
+    p.add_argument("--dropout",        default=0.1,  type=float,
+                   help="Dropout en M3A y Classifier")
+    p.add_argument("--missing_rate",   default=0.4,  type=float,
                    help="Probabilidad de eliminar cada modalidad en entrenamiento")
-    p.add_argument("--num_workers",  default=0,    type=int)
+    p.add_argument("--lambda_recon",   default=0.1,  type=float,
+                   help="Peso de la pérdida auxiliar de reconstrucción (M3A)")
+    p.add_argument("--lambda_spread",  default=0.05, type=float,
+                   help="Peso de la regularización de spread de confianza (M3B)")
+    p.add_argument("--num_workers",    default=0,    type=int)
     p.add_argument("--seed",         default=42,   type=int)
     p.add_argument("--device",
                    default="cuda" if torch.cuda.is_available() else "cpu")
@@ -81,7 +87,8 @@ def label_to_class(labels: torch.Tensor) -> torch.Tensor:
 # ── Epoch helpers ─────────────────────────────────────────────────────────────
 
 def train_epoch(model, loader, optimizer, loss_fn, device, task, log,
-                epoch, show_first_batch_verbose):
+                epoch, show_first_batch_verbose,
+                lambda_recon=0.1, lambda_spread=0.05):
     """Entrena una época. Muestra verbose del primer batch si se solicita."""
     model.train()
     total_loss = 0.0
@@ -113,6 +120,9 @@ def train_epoch(model, loader, optimizer, loss_fn, device, task, log,
             loss = loss_fn(out.squeeze(-1), labels)
         else:
             loss = loss_fn(out, label_to_class(labels))
+
+        # Pérdidas auxiliares: reconstrucción M3A + spread de confianza M3B
+        loss = loss + lambda_recon * aux["recon_loss"] + lambda_spread * aux["spread_loss"]
 
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -276,7 +286,7 @@ def main():
 
     # ── Modelo ───────────────────────────────────────────────────────────────
     log.subsection("Arquitectura AMFuse")
-    model = AMFuse(task=args.task, d=args.d_hidden).to(device)
+    model = AMFuse(task=args.task, d=args.d_hidden, dropout=args.dropout).to(device)
     total, trainable = model.count_params()
 
     log(f"  Pipeline: M1(estado) -> M2(proyección) -> M3A(generación) -> "
@@ -302,7 +312,8 @@ def main():
     log("  Hiperparámetros del modelo:")
     log.kv("  Dimensión latente d",  args.d_hidden)
     log.kv("  Cabezas de atención",  8)
-    log.kv("  Beta (penalización)",  0.5)
+    log.kv("  Beta (penalización)",  f"learnable, init=0.5")
+    log.kv("  Dropout",              args.dropout)
     log.kv("  Task",                 args.task)
 
     # ── Optimizer / Scheduler ────────────────────────────────────────────────
@@ -316,6 +327,8 @@ def main():
     log.kv("Weight decay",       args.weight_decay)
     log.kv("Scheduler",          f"CosineAnnealingLR (T_max={args.epochs})")
     log.kv("Loss",               "MAE (L1Loss)" if args.task == "regression" else "CrossEntropyLoss")
+    log.kv("Lambda recon",       args.lambda_recon)
+    log.kv("Lambda spread",      args.lambda_spread)
     log.kv("Gradient clipping",  "max_norm=1.0")
 
     # ── Bucle de entrenamiento ────────────────────────────────────────────────
@@ -349,7 +362,9 @@ def main():
         # ── Entrenamiento ────────────────────────────────────────────────────
         tr_loss = train_epoch(
             model, loaders["train"], optimizer, loss_fn,
-            device, args.task, log, epoch, show_verbose
+            device, args.task, log, epoch, show_verbose,
+            lambda_recon=args.lambda_recon,
+            lambda_spread=args.lambda_spread,
         )
 
         # ── Validación ───────────────────────────────────────────────────────
@@ -415,6 +430,8 @@ def main():
             log.kv("    c_t (Texto)", f"{val_conf['c_t']:.4f}")
             log.kv("    c_a (Audio)", f"{val_conf['c_a']:.4f}")
             log.kv("    c_v (Video)", f"{val_conf['c_v']:.4f}")
+            log.kv("    beta (M3B)",  f"{model.confidence.beta.item():.4f}")
+            log.kv("    T (M4)",      f"{model.cross_attn.temperature.item():.4f}")
             log.kv("    LR actual",   f"{scheduler.get_last_lr()[0]:.2e}")
             log("")
 
