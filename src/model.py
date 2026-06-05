@@ -85,17 +85,21 @@ class ModalityGenerator(nn.Module):
     Una instancia por modalidad potencialmente faltante.
     """
 
-    def __init__(self, d=D_HIDDEN, n_heads=N_HEADS):
+    def __init__(self, d=D_HIDDEN, n_heads=N_HEADS, dropout=0.0):
         super().__init__()
-        self.cross_attn = nn.MultiheadAttention(d, n_heads, batch_first=True)
+        self.cross_attn = nn.MultiheadAttention(d, n_heads, batch_first=True, dropout=dropout)
+        self.drop  = nn.Dropout(dropout)
         self.norm  = nn.LayerNorm(d)
-        self.ff    = nn.Sequential(nn.Linear(d, d * 2), nn.GELU(), nn.Linear(d * 2, d))
+        self.ff    = nn.Sequential(
+            nn.Linear(d, d * 2), nn.GELU(), nn.Dropout(dropout), nn.Linear(d * 2, d)
+        )
         self.norm2 = nn.LayerNorm(d)
 
     def forward(self, query_src, key_val_src):
         q  = query_src.unsqueeze(1)
         kv = key_val_src.unsqueeze(1)
         out, _ = self.cross_attn(q, kv, kv)
+        out = self.drop(out)
         out = self.norm(out.squeeze(1) + query_src)
         out = self.norm2(out + self.ff(out))
         return out
@@ -108,11 +112,11 @@ class MissingModalityGenerator(nn.Module):
     Actualiza h y tau (tipo: 1.0=real, 0.0=generado).
     """
 
-    def __init__(self, d=D_HIDDEN, n_heads=N_HEADS):
+    def __init__(self, d=D_HIDDEN, n_heads=N_HEADS, dropout=0.0):
         super().__init__()
-        self.gen_t = ModalityGenerator(d, n_heads)
-        self.gen_a = ModalityGenerator(d, n_heads)
-        self.gen_v = ModalityGenerator(d, n_heads)
+        self.gen_t = ModalityGenerator(d, n_heads, dropout)
+        self.gen_a = ModalityGenerator(d, n_heads, dropout)
+        self.gen_v = ModalityGenerator(d, n_heads, dropout)
 
     def _best_pair(self, h1, h2, m1, m2):
         query   = h1
@@ -159,6 +163,38 @@ class MissingModalityGenerator(nn.Module):
 
         return h_t, h_a, h_v, tau_t, tau_a, tau_v
 
+    def compute_recon_loss(self, h_t, h_a, h_v, mt, ma, mv):
+        """
+        Loss de reconstrucción auto-supervisado: para cada modalidad presente,
+        genera su embedding desde las otras dos y compara con el real.
+        Solo cuenta muestras donde haya al menos una modalidad de contexto válida.
+        """
+        loss  = h_t.new_zeros(())
+        count = 0
+
+        # Reconstruir TEXTO desde audio+video (solo donde texto está presente y hay contexto)
+        has_t = (mt == 1) & ((ma == 1) | (mv == 1))
+        if has_t.any():
+            q, kv = self._best_pair(h_a[has_t], h_v[has_t], ma[has_t], mv[has_t])
+            loss  = loss + F.mse_loss(self.gen_t(q, kv), h_t[has_t].detach())
+            count += 1
+
+        # Reconstruir AUDIO desde texto+video
+        has_a = (ma == 1) & ((mt == 1) | (mv == 1))
+        if has_a.any():
+            q, kv = self._best_pair(h_t[has_a], h_v[has_a], mt[has_a], mv[has_a])
+            loss  = loss + F.mse_loss(self.gen_a(q, kv), h_a[has_a].detach())
+            count += 1
+
+        # Reconstruir VIDEO desde texto+audio
+        has_v = (mv == 1) & ((mt == 1) | (ma == 1))
+        if has_v.any():
+            q, kv = self._best_pair(h_t[has_v], h_a[has_v], mt[has_v], ma[has_v])
+            loss  = loss + F.mse_loss(self.gen_v(q, kv), h_v[has_v].detach())
+            count += 1
+
+        return loss / max(count, 1)
+
 
 # ── Módulo 3B: Estimador de confiabilidad ────────────────────────────────────
 
@@ -166,6 +202,10 @@ class ConfidenceEstimator(nn.Module):
     """
     Módulo 3B (contribución original): MLP 2 capas -> sigmoid -> escalado por beta
     para modalidades generadas (Ec. 3.4).
+
+    beta es ahora un nn.Parameter learnable (beta = sigmoid(_beta_logit)).
+    Inicializado en sigmoid(0) = 0.5, igual que BETA_INIT, pero el optimizador
+    puede ajustarlo durante el entrenamiento para aprender el penalty óptimo.
     """
 
     def __init__(self, d=D_HIDDEN):
@@ -173,12 +213,19 @@ class ConfidenceEstimator(nn.Module):
         self.phi_t = nn.Sequential(nn.Linear(d, d // 2), nn.ReLU(), nn.Linear(d // 2, 1))
         self.phi_a = nn.Sequential(nn.Linear(d, d // 2), nn.ReLU(), nn.Linear(d // 2, 1))
         self.phi_v = nn.Sequential(nn.Linear(d, d // 2), nn.ReLU(), nn.Linear(d // 2, 1))
-        self.beta  = BETA_INIT
+        # sigmoid(0) = 0.5 = BETA_INIT; learnable, siempre en (0, 1)
+        self._beta_logit = nn.Parameter(torch.zeros(1))
+
+    @property
+    def beta(self) -> torch.Tensor:
+        return torch.sigmoid(self._beta_logit)
 
     def forward(self, h_t, h_a, h_v, tau_t, tau_a, tau_v, verbose_fn=None):
+        beta = self.beta   # evaluar una vez por forward
+
         def _conf(phi, h, tau):
             raw   = torch.sigmoid(phi(h).squeeze(-1))
-            scale = tau + (1.0 - tau) * self.beta
+            scale = tau + (1.0 - tau) * beta
             return raw * scale
 
         c_t = _conf(self.phi_t, h_t, tau_t)
@@ -191,7 +238,7 @@ class ConfidenceEstimator(nn.Module):
                 f"c_t={c_t.mean():.3f}±{c_t.std():.3f}  "
                 f"c_a={c_a.mean():.3f}±{c_a.std():.3f}  "
                 f"c_v={c_v.mean():.3f}±{c_v.std():.3f}  "
-                f"(beta={self.beta})"
+                f"(beta={beta.item():.3f})"
             )
 
         return c_t, c_a, c_v
@@ -201,8 +248,20 @@ class ConfidenceEstimator(nn.Module):
 
 class DynamicAnchorCrossAttn(nn.Module):
     """
-    Módulo 4: selecciona la modalidad más confiable como ancla y
-    cross-atiende las otras dos a través de ella (Ec. 3.5-3.7).
+    Módulo 4: mezcla suave ponderada por confianza (Ec. 3.5-3.7, versión diferenciable).
+
+    En lugar de un argmax duro, los pesos w = softmax(c_eff / T) mezclan todas las
+    cross-atenciones posibles. Cuando una modalidad domina (w_i → 1) el comportamiento
+    converge al ancla dura original. La temperatura T es learnable (init=1).
+
+    Interpretación de h_t_out:
+      w_t * h_t       — texto actúa como ancla (se queda sin cambio)
+      w_a * e_{a→t}   — audio es ancla: texto es cross-atendido desde audio
+      w_v * e_{v→t}   — video es ancla: texto es cross-atendido desde video
+    Análogo para h_a_out y h_v_out.
+
+    Ventaja frente al argmax: ∂loss/∂c_i fluye a través de w directamente hacia M3B,
+    resolviendo el cortocircuito de gradiente que causaba el colapso de c_a y c_v.
     """
 
     def __init__(self, d=D_HIDDEN, n_heads=N_HEADS):
@@ -210,6 +269,7 @@ class DynamicAnchorCrossAttn(nn.Module):
         self.attn_t_anchor = nn.MultiheadAttention(d, n_heads, batch_first=True)
         self.attn_a_anchor = nn.MultiheadAttention(d, n_heads, batch_first=True)
         self.attn_v_anchor = nn.MultiheadAttention(d, n_heads, batch_first=True)
+        self.temperature   = nn.Parameter(torch.ones(1))   # T learnable, init=1
 
     def _cross(self, attn_module, anchor_h, other_h):
         q  = anchor_h.unsqueeze(1)
@@ -222,31 +282,31 @@ class DynamicAnchorCrossAttn(nn.Module):
         eff_a = c_a * ma.float()
         eff_v = c_v * mv.float()
 
-        confs      = torch.stack([eff_t, eff_a, eff_v], dim=1)  # [B, 3]
-        anchor_idx = confs.argmax(dim=1)                          # [B]
+        confs = torch.stack([eff_t, eff_a, eff_v], dim=1)          # [B, 3]
+        temp  = self.temperature.clamp(min=0.1)                     # evitar T→0 inestable
+        w     = F.softmax(confs / temp, dim=1)                      # [B, 3], diferenciable
 
         if verbose_fn:
+            anchor_idx = confs.argmax(dim=1)   # solo para diagnóstico
             cnt = [(anchor_idx == i).sum().item() for i in range(3)]
             verbose_fn(
-                f"    [M4]  Ancla seleccionada -> "
-                f"Texto: {cnt[0]}  Audio: {cnt[1]}  Video: {cnt[2]}  muestras"
+                f"    [M4]  Ancla dominante (soft) -> "
+                f"Texto: {cnt[0]}  Audio: {cnt[1]}  Video: {cnt[2]}  muestras  "
+                f"(T={temp.item():.3f})"
             )
 
-        # Todas las combinaciones de cross-atención
-        e_t_a = self._cross(self.attn_t_anchor, h_t, h_a)
+        # Todas las combinaciones de cross-atención (6 en total)
+        e_t_a = self._cross(self.attn_t_anchor, h_t, h_a)  # texto como Q, audio como KV
         e_t_v = self._cross(self.attn_t_anchor, h_t, h_v)
         e_a_t = self._cross(self.attn_a_anchor, h_a, h_t)
         e_a_v = self._cross(self.attn_a_anchor, h_a, h_v)
         e_v_t = self._cross(self.attn_v_anchor, h_v, h_t)
         e_v_a = self._cross(self.attn_v_anchor, h_v, h_a)
 
-        is_t = (anchor_idx == 0).unsqueeze(1)
-        is_a = (anchor_idx == 1).unsqueeze(1)
-        is_v = (anchor_idx == 2).unsqueeze(1)
-
-        h_t_out = torch.where(is_t, h_t, torch.where(is_a, e_a_t, e_v_t))
-        h_a_out = torch.where(is_a, h_a, torch.where(is_t, e_t_a, e_v_a))
-        h_v_out = torch.where(is_v, h_v, torch.where(is_t, e_t_v, e_a_v))
+        # Mezcla suave: cada modalidad recibe su embedding "de ancla" ponderado por w
+        h_t_out = w[:, 0:1] * h_t   + w[:, 1:2] * e_a_t + w[:, 2:3] * e_v_t
+        h_a_out = w[:, 0:1] * e_t_a + w[:, 1:2] * h_a   + w[:, 2:3] * e_v_a
+        h_v_out = w[:, 0:1] * e_t_v + w[:, 1:2] * e_a_v + w[:, 2:3] * h_v
 
         return h_t_out, h_a_out, h_v_out
 
@@ -295,9 +355,10 @@ class ConfidenceAwareFusion(nn.Module):
 class Classifier(nn.Module):
     """Módulo 6: MLP 2 capas con ReLU. Ec. 3.12."""
 
-    def __init__(self, d=D_HIDDEN, n_classes: int = 1):
+    def __init__(self, d=D_HIDDEN, n_classes: int = 1, dropout=0.0):
         super().__init__()
         self.net = nn.Sequential(
+            nn.Dropout(dropout),
             nn.Linear(d, d // 2),
             nn.ReLU(),
             nn.Linear(d // 2, n_classes),
@@ -319,18 +380,18 @@ class AMFuse(nn.Module):
         verbose : si True, imprime detalle de cada módulo en el primer batch
     """
 
-    def __init__(self, task: str = "regression", d: int = D_HIDDEN):
+    def __init__(self, task: str = "regression", d: int = D_HIDDEN, dropout: float = 0.0):
         super().__init__()
         assert task in ("regression", "classification")
         self.task = task
 
-        self.projectors = UnimodalProjectors(d=d)    # M2
-        self.generator  = MissingModalityGenerator(d=d)  # M3A
-        self.confidence = ConfidenceEstimator(d=d)    # M3B
-        self.cross_attn = DynamicAnchorCrossAttn(d=d) # M4
-        self.fusion     = ConfidenceAwareFusion(d=d)  # M5
+        self.projectors = UnimodalProjectors(d=d)              # M2
+        self.generator  = MissingModalityGenerator(d=d, dropout=dropout)  # M3A
+        self.confidence = ConfidenceEstimator(d=d)             # M3B
+        self.cross_attn = DynamicAnchorCrossAttn(d=d)          # M4
+        self.fusion     = ConfidenceAwareFusion(d=d)           # M5
         n_out           = 1 if task == "regression" else 3
-        self.classifier = Classifier(d=d, n_classes=n_out)  # M6
+        self.classifier = Classifier(d=d, n_classes=n_out, dropout=dropout)  # M6
 
         # Controla el detalle de prints durante el forward
         # Asignar una función callable para activar; None = silencioso
@@ -367,11 +428,28 @@ class AMFuse(nn.Module):
             h_t, h_a, h_v, mask_t, mask_a, mask_v, verbose_fn=vfn
         )
 
+        # Loss auxiliar de reconstrucción (solo activo en training)
+        if self.training:
+            recon_loss = self.generator.compute_recon_loss(h_t, h_a, h_v, mask_t, mask_a, mask_v)
+        else:
+            recon_loss = h_t.new_zeros(())
+
         # M3B
         if vfn: vfn("  [M3B] Estimador de confiabilidad ->")
         c_t, c_a, c_v = self.confidence(
             h_t, h_a, h_v, tau_t, tau_a, tau_v, verbose_fn=vfn
         )
+
+        # Spread loss: penaliza el colapso de varianza dentro de los embeddings REALES.
+        # Se calcula solo sobre muestras con tau_i=1 (modalidad observada) para evitar
+        # que el optimizador use el atajo trivial "real→1, generado→0.5" que maximiza
+        # varianza sin aprender calidad diferenciada. Con esta restricción, phi_i debe
+        # aprender a distinguir qué embeddings reales son más o menos informativos.
+        def _real_var(c: torch.Tensor, tau: torch.Tensor) -> torch.Tensor:
+            real = c[tau == 1]
+            return real.var() if real.numel() > 1 else c.new_zeros(())
+
+        spread_loss = -(_real_var(c_t, tau_t) + _real_var(c_a, tau_a) + _real_var(c_v, tau_v))
 
         # M4
         if vfn: vfn("  [M4]  Atención cruzada con ancla dinámica ->")
@@ -389,7 +467,13 @@ class AMFuse(nn.Module):
         if vfn: vfn(f"    [M6]  Predicciones -> shape={tuple(out.shape)}  "
                     f"min={out.min().item():.3f}  max={out.max().item():.3f}")
 
-        aux = {"c_t": c_t.detach(), "c_a": c_a.detach(), "c_v": c_v.detach()}
+        aux = {
+            "c_t":         c_t.detach(),
+            "c_a":         c_a.detach(),
+            "c_v":         c_v.detach(),
+            "recon_loss":  recon_loss,
+            "spread_loss": spread_loss,
+        }
         return out, aux
 
     def count_params(self):
