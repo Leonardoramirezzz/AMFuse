@@ -112,27 +112,42 @@ def _temporal_mean(features: np.ndarray) -> np.ndarray:
     return f.mean(axis=0).astype(np.float32)
 
 
+# ── Normalización z-score ─────────────────────────────────────────────────────
+
+def _compute_norm_stats(arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Media y std por dimensión sobre el eje 0 (muestras).
+    std mínimo de 1e-6 para evitar división por cero en dimensiones constantes.
+    """
+    mean = arr.mean(axis=0).astype(np.float32)
+    std  = arr.std(axis=0).astype(np.float32)
+    std  = np.where(std < 1e-6, 1.0, std)   # dimensiones constantes → std=1, sin cambio
+    return mean, std
+
+
+def _apply_norm(arr: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.ndarray:
+    return ((arr - mean) / std).astype(np.float32)
+
+
 # ── Dataset ──────────────────────────────────────────────────────────────────
 
 class MoseiDataset(Dataset):
     """
-    Unified CMU-MOSEI dataset for AMFuse.
+    Unified CMU-MOSEI dataset para AMFuse con normalización z-score.
 
-    Returns per sample:
-        text   : FloatTensor [768]       (BERT CLS; zero if missing)
-        audio  : FloatTensor [74]        (COVAREP mean; zero if missing)
-        video  : FloatTensor [35]        (FACET mean;   zero if missing)
-        label  : FloatTensor []          (sentiment score in [-3, 3])
-        mask_t : int  1/0               (text available)
-        mask_a : int  1/0               (audio available)
-        mask_v : int  1/0               (video available)
+    Devuelve por muestra:
+        text   : FloatTensor [768]   (BERT CLS normalizado; cero si falta)
+        audio  : FloatTensor [74]    (COVAREP norm.; cero si falta)
+        video  : FloatTensor [35]    (FACET norm.;   cero si falta)
+        label  : FloatTensor []      (score en [-3, 3])
+        mask_t/mask_a/mask_v : LongTensor 0/1
 
-    Missing-modality simulation:
-        During training, modalities can be randomly dropped with probability
-        `missing_rate` to teach the model to handle missing inputs.
+    norm_stats:
+        None  → calcular estadísticas desde ESTE split (usar solo en train).
+        dict  → {'text':(mean,std), 'audio':(mean,std), 'video':(mean,std)}
+                Pasar las estadísticas del train a val/test para no hacer data leakage.
     """
 
-    TEXT_DIM = 768
+    TEXT_DIM  = 768
     AUDIO_DIM = 74
     VIDEO_DIM = 35
 
@@ -142,6 +157,7 @@ class MoseiDataset(Dataset):
         split: str = "train",
         missing_rate: float = 0.0,
         seed: int = 42,
+        norm_stats: dict | None = None,
     ):
         assert split in ("train", "valid", "test")
         self.split = split
@@ -149,53 +165,65 @@ class MoseiDataset(Dataset):
         self.rng = np.random.RandomState(seed)
 
         data_dir = Path(data_dir)
-        bert_path = data_dir / "BERT_MOSEI.pkl"
-        covarep_path = data_dir / "COAVAREP_aligned_MOSEI.pkl"
-        facet_path = data_dir / "FACET_aligned_MOSEI.pkl"
 
-        # Load BERT flat arrays
-        with open(bert_path, "rb") as f:
+        # ── Cargar BERT ──────────────────────────────────────────────────────
+        with open(data_dir / "BERT_MOSEI.pkl", "rb") as f:
             bert_raw = pickle.load(f, encoding="latin1")
-        bert_all = bert_raw["Data"].float().numpy()   # [22860, 768]
-        labels_all = bert_raw["level"].float().numpy()  # [22860]
+        bert_all   = bert_raw["Data"].float().numpy()    # [22860, 768]
+        labels_all = bert_raw["level"].float().numpy()   # [22860]
 
-        # Standard MOSEI split boundaries (train=0:16326, valid=16326:18197, test=18197:)
         SPLIT_BOUNDS = {"train": (0, 16326), "valid": (16326, 18197), "test": (18197, 22860)}
-        lo, hi = SPLIT_BOUNDS[split]
-        bert_split = bert_all[lo:hi]        # [N_split, 768]
-        labels_split = labels_all[lo:hi]    # [N_split]
+        lo, hi    = SPLIT_BOUNDS[split]
+        bert_split   = bert_all[lo:hi]
+        labels_split = labels_all[lo:hi]
 
-        # Load COVAREP + FACET, average over time → [N_seg, D]
-        with open(covarep_path, "rb") as f:
+        # ── Cargar COVAREP + FACET ───────────────────────────────────────────
+        with open(data_dir / "COAVAREP_aligned_MOSEI.pkl", "rb") as f:
             covarep_seq = pickle.load(f)
-        with open(facet_path, "rb") as f:
+        with open(data_dir / "FACET_aligned_MOSEI.pkl", "rb") as f:
             facet_seq = pickle.load(f)
 
-        seg_ids = list(covarep_seq.data.keys())  # 23248 segments, same order in both
+        seg_ids      = list(covarep_seq.data.keys())
+        split_segs   = [s for s in seg_ids
+                        if _default_split(s.rsplit("[", 1)[0]) == split]
 
-        # Assign split by video ID
-        split_seg_ids = [s for s in seg_ids if _default_split(s.rsplit("[", 1)[0]) == split]
-
-        # Build audio/video arrays for this split
         audio_list, video_list, seg_id_list = [], [], []
-        for sid in split_seg_ids:
-            a = _temporal_mean(covarep_seq.data[sid]["features"])
-            v = _temporal_mean(facet_seq.data[sid]["features"])
-            audio_list.append(a)
-            video_list.append(v)
+        for sid in split_segs:
+            audio_list.append(_temporal_mean(covarep_seq.data[sid]["features"]))
+            video_list.append(_temporal_mean(facet_seq.data[sid]["features"]))
             seg_id_list.append(sid)
 
-        audio_arr = np.stack(audio_list)   # [N_split_av, 74]
-        video_arr = np.stack(video_list)   # [N_split_av, 35]
+        audio_arr = np.stack(audio_list)   # [N, 74]
+        video_arr = np.stack(video_list)   # [N, 35]
 
-        # Align BERT with audio/video.
-        # BERT split size (N_bert) may differ from audio/video split size (N_av).
-        # We take the minimum to avoid index out-of-range.
+        # ── Alineación ──────────────────────────────────────────────────────
         n = min(len(bert_split), len(audio_arr))
-        self.bert = torch.from_numpy(bert_split[:n])     # [n, 768]
-        self.audio = torch.from_numpy(audio_arr[:n])     # [n, 74]
-        self.video = torch.from_numpy(video_arr[:n])     # [n, 35]
-        self.labels = torch.from_numpy(labels_split[:n]) # [n]
+        bert_arr  = bert_split[:n]
+        audio_arr = audio_arr[:n]
+        video_arr = video_arr[:n]
+
+        # ── Normalización z-score ────────────────────────────────────────────
+        # Si no se pasan estadísticas, calcularlas desde este split (debe ser train).
+        if norm_stats is None:
+            mt, st = _compute_norm_stats(bert_arr)
+            ma, sa = _compute_norm_stats(audio_arr)
+            mv, sv = _compute_norm_stats(video_arr)
+            self.norm_stats = {
+                "text":  (mt, st),
+                "audio": (ma, sa),
+                "video": (mv, sv),
+            }
+        else:
+            self.norm_stats = norm_stats
+
+        bert_arr  = _apply_norm(bert_arr,  *self.norm_stats["text"])
+        audio_arr = _apply_norm(audio_arr, *self.norm_stats["audio"])
+        video_arr = _apply_norm(video_arr, *self.norm_stats["video"])
+
+        self.bert   = torch.from_numpy(bert_arr)
+        self.audio  = torch.from_numpy(audio_arr)
+        self.video  = torch.from_numpy(video_arr)
+        self.labels = torch.from_numpy(labels_split[:n])
         self.seg_ids = seg_id_list[:n]
         self.n = n
 
@@ -203,31 +231,27 @@ class MoseiDataset(Dataset):
         return self.n
 
     def __getitem__(self, idx):
-        text = self.bert[idx].clone()
+        text  = self.bert[idx].clone()
         audio = self.audio[idx].clone()
         video = self.video[idx].clone()
         label = self.labels[idx]
 
         mt, ma, mv = 1, 1, 1
 
-        # Random missing-modality dropout during training
         if self.missing_rate > 0.0:
             r = self.rng.rand(3)
             if r[0] < self.missing_rate:
-                text.zero_()
-                mt = 0
+                text.zero_();  mt = 0
             if r[1] < self.missing_rate:
-                audio.zero_()
-                ma = 0
+                audio.zero_(); ma = 0
             if r[2] < self.missing_rate:
-                video.zero_()
-                mv = 0
+                video.zero_(); mv = 0
 
         return {
-            "text": text,
-            "audio": audio,
-            "video": video,
-            "label": label,
+            "text":   text,
+            "audio":  audio,
+            "video":  video,
+            "label":  label,
             "mask_t": torch.tensor(mt, dtype=torch.long),
             "mask_a": torch.tensor(ma, dtype=torch.long),
             "mask_v": torch.tensor(mv, dtype=torch.long),
@@ -241,15 +265,25 @@ def get_loaders(
     num_workers: int = 0,
     seed: int = 42,
 ):
-    """Return train / valid / test DataLoaders."""
+    """Crea los DataLoaders de train/valid/test.
+    Las estadísticas de normalización se calculan en train y se reutilizan en val/test.
+    """
+    # Train: calcula estadísticas propias
+    train_ds = MoseiDataset(data_dir, split="train",
+                            missing_rate=missing_rate, seed=seed,
+                            norm_stats=None)
+    stats = train_ds.norm_stats   # estadísticas del train
+
+    # Val y test: usan las mismas estadísticas (sin data leakage)
+    valid_ds = MoseiDataset(data_dir, split="valid",
+                            missing_rate=0.0, seed=seed,
+                            norm_stats=stats)
+    test_ds  = MoseiDataset(data_dir, split="test",
+                            missing_rate=0.0, seed=seed,
+                            norm_stats=stats)
+
     loaders = {}
-    for split in ("train", "valid", "test"):
-        ds = MoseiDataset(
-            data_dir,
-            split=split,
-            missing_rate=missing_rate if split == "train" else 0.0,
-            seed=seed,
-        )
+    for split, ds in [("train", train_ds), ("valid", valid_ds), ("test", test_ds)]:
         loaders[split] = DataLoader(
             ds,
             batch_size=batch_size,
@@ -258,4 +292,5 @@ def get_loaders(
             pin_memory=True,
         )
         print(f"  {split:5s}: {len(ds):5d} samples")
+
     return loaders
